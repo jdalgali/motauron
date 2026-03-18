@@ -14,6 +14,7 @@ struct MhListing {
     fzg_preis: Option<u32>,
     fzg_km: Option<u32>,
     fzg_1iv: Option<String>,
+    kundentyp: Option<u8>, // 1 = dealer, 2 = private
     rel_marke: Option<RelMarke>,
     rel_modelle: Option<RelModelle>,
     rel_suchmh: Option<RelSuchMH>,
@@ -32,7 +33,6 @@ struct RelModelle {
     name: String,
 }
 
-/// The search model handle — its name is used as the URL slug
 #[derive(Deserialize, Debug)]
 struct RelSuchMH {
     #[serde(rename = "SuchMH")]
@@ -43,6 +43,7 @@ struct RelSuchMH {
 struct Standort {
     kunde_ort: Option<String>,
     kunde_kanton: Option<String>,
+    firma_name: Option<String>,
 }
 
 fn to_url_slug(s: &str) -> String {
@@ -108,8 +109,6 @@ pub async fn scrape_category(
             continue;
         }
 
-        // Build URL from brand slug + search-model slug + id
-        // e.g. https://motorradhandel.ch/en/d/yamaha/tenere-700/8637084
         let brand_slug = to_url_slug(marke);
         let model_slug = item
             .rel_suchmh
@@ -121,16 +120,14 @@ pub async fn scrape_category(
             brand_slug, model_slug, item.id
         );
 
-        let location = item
-            .standort
-            .as_ref()
-            .and_then(|s| s.kunde_ort.clone())
+        let standort = item.standort.as_ref();
+        let location = standort.and_then(|s| s.kunde_ort.clone()).unwrap_or_default();
+        let kanton = standort.and_then(|s| s.kunde_kanton.clone()).unwrap_or_default();
+        let seller_name = standort
+            .and_then(|s| s.firma_name.clone())
             .unwrap_or_default();
-        let kanton = item
-            .standort
-            .as_ref()
-            .and_then(|s| s.kunde_kanton.clone())
-            .unwrap_or_default();
+
+        let is_private = item.kundentyp == Some(2);
 
         results.push(MotorcycleListing::new(
             item.id,
@@ -143,6 +140,8 @@ pub async fn scrape_category(
             url,
             location,
             kanton,
+            is_private,
+            seller_name,
         ));
     }
 
