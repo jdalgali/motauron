@@ -12,12 +12,21 @@
 
 use crate::models::motorcycle::MotorcycleListing;
 use chromiumoxide::browser::{Browser, BrowserConfig};
+use chromiumoxide::cdp::browser_protocol::page::AddScriptToEvaluateOnNewDocumentParams;
 use chrono::NaiveDate;
 use futures::StreamExt;
 use serde_json::Value;
 use std::error::Error;
 
 const LISTINGS_PER_PAGE: usize = 20;
+
+// Injected before any page JS runs — removes the most obvious headless tells.
+const STEALTH_JS: &str = r#"
+    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+    Object.defineProperty(navigator, 'languages', { get: () => ['de-CH', 'de', 'en'] });
+    window.chrome = { runtime: {} };
+"#;
 
 // --- Public entry point ---
 
@@ -31,6 +40,9 @@ pub async fn scrape_category(
         .arg("--disable-setuid-sandbox")
         .arg("--disable-dev-shm-usage")
         .arg("--disable-gpu")
+        .arg("--disable-blink-features=AutomationControlled")
+        .arg("--window-size=1920,1080")
+        .arg("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
         .build()?;
 
     let (mut browser, mut handler) = Browser::launch(config).await?;
@@ -54,11 +66,33 @@ pub async fn scrape_category(
             make_key, model_key, pg
         );
 
-        let page = browser.new_page(&url).await?;
+        // Navigate to blank first so we can inject stealth JS before page load
+        let page = browser.new_page("about:blank").await?;
+        page.execute(
+            AddScriptToEvaluateOnNewDocumentParams::builder()
+                .source(STEALTH_JS)
+                .build()
+                .unwrap(),
+        )
+        .await?;
+        page.goto(url).await?;
         page.wait_for_navigation().await?;
 
-        // Give the JS a moment to hydrate after navigation fires
-        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        // Give Cloudflare's Turnstile challenge time to auto-solve
+        tokio::time::sleep(std::time::Duration::from_secs(6)).await;
+
+        // Check if we're still on a Cloudflare challenge page
+        let title: String = page
+            .get_title()
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        if title.contains("Just a moment") {
+            eprintln!("  [as24] cloudflare challenge not solved (page: {})", pg);
+            let _ = page.close().await;
+            break;
+        }
 
         // Extract Next.js server-side data embedded in the page
         let raw: Value = page
