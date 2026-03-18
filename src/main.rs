@@ -48,7 +48,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     for (category, make_key, model_key) in as24_categories {
         let display = category.replace('_', " ").to_lowercase();
-        match scrapers::autoscout24::scrape_category(&client, category, make_key, model_key).await {
+        match scrapers::autoscout24::scrape_category(category, make_key, model_key).await {
             Ok(listings) => {
                 println!("  autoscout24    · {} — {} found", display, listings.len());
                 all_listings.extend(listings);

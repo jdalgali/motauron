@@ -1,244 +1,243 @@
-// autoscout24.ch scraper
+// autoscout24.ch / motoscout24.ch browser scraper
 //
-// Uses the official REST API at https://api.autoscout24.ch (OpenAPI spec:
-// https://github.com/smg-automotive/autoscout24-api-specs)
+// Uses chromiumoxide (Chrome DevTools Protocol) to render pages in a real
+// browser, bypassing Cloudflare's JS challenge.
 //
-// Requires OAuth2 client credentials from SMG Automotive.
-// Set these environment variables before running:
+// Requires Chromium or Chrome:
+//   sudo apt install chromium-browser        (Ubuntu / WSL)
+//   brew install --cask chromium             (macOS)
 //
-//   AS24_CLIENT_ID=your_client_id
-//   AS24_CLIENT_SECRET=your_client_secret
-//
-// Contact info@autoscout24.ch or https://b2b.autoscout24.ch to request access.
+// Optional debug mode — dumps raw __NEXT_DATA__ JSON to /tmp for inspection:
+//   AS24_DEBUG=1 cargo run
 
 use crate::models::motorcycle::MotorcycleListing;
-use reqwest::Client;
-use serde::{Deserialize, Serialize};
+use chromiumoxide::browser::{Browser, BrowserConfig};
+use chrono::NaiveDate;
+use futures::StreamExt;
+use serde_json::Value;
 use std::error::Error;
 
-const TOKEN_URL: &str = "https://api.autoscout24.ch/public/v1/clients/oauth/token";
-const SEARCH_URL: &str = "https://api.autoscout24.ch/public/v1/listings/search";
-const AUDIENCE: &str = "https://api.autoscout24.ch";
-const PAGE_SIZE: u32 = 20;
+const LISTINGS_PER_PAGE: usize = 20;
 
-// --- OAuth ---
+// --- Public entry point ---
 
-#[derive(Deserialize)]
-struct TokenResponse {
-    access_token: String,
-}
-
-async fn fetch_token(
-    client: &Client,
-    client_id: &str,
-    client_secret: &str,
-) -> Result<String, Box<dyn Error>> {
-    let params = [
-        ("grant_type", "client_credentials"),
-        ("client_id", client_id),
-        ("client_secret", client_secret),
-        ("audience", AUDIENCE),
-    ];
-
-    let resp: TokenResponse = client
-        .post(TOKEN_URL)
-        .form(&params)
-        .send()
-        .await?
-        .error_for_status()?
-        .json()
-        .await?;
-
-    Ok(resp.access_token)
-}
-
-// --- Search request structs ---
-
-#[derive(Serialize)]
-struct SearchRequest<'a> {
-    query: SearchQuery<'a>,
-    pagination: Pagination,
-}
-
-#[derive(Serialize)]
-struct SearchQuery<'a> {
-    #[serde(rename = "vehicleCategories")]
-    vehicle_categories: Vec<&'a str>,
-    #[serde(rename = "makeModelVersions")]
-    make_model_versions: Vec<MakeModelVersion<'a>>,
-}
-
-#[derive(Serialize)]
-struct MakeModelVersion<'a> {
-    #[serde(rename = "makeKey")]
-    make_key: &'a str,
-    #[serde(rename = "modelKey")]
-    model_key: &'a str,
-}
-
-#[derive(Serialize)]
-struct Pagination {
-    page: u32,
-    size: u32,
-}
-
-// --- Search response structs ---
-
-#[derive(Deserialize)]
-struct SearchResponse {
-    content: Vec<As24Listing>,
-    #[serde(rename = "totalPages", default)]
-    total_pages: u32,
-}
-
-#[derive(Deserialize)]
-struct As24Listing {
-    id: u64,
-    price: Option<f64>,
-    mileage: Option<u32>,
-    #[serde(rename = "firstRegistrationYear")]
-    first_registration_year: Option<u16>,
-    make: Option<As24Make>,
-    model: Option<As24Model>,
-    #[serde(rename = "versionFullName")]
-    version_full_name: Option<String>,
-    seller: Option<As24Seller>,
-}
-
-#[derive(Deserialize)]
-struct As24Make {
-    key: String,
-    name: String,
-}
-
-#[derive(Deserialize)]
-struct As24Model {
-    name: String,
-}
-
-#[derive(Deserialize)]
-struct As24Seller {
-    name: Option<String>,
-    city: Option<String>,
-    #[serde(rename = "zipCode")]
-    zip_code: Option<String>,
-}
-
-// --- Public scraper function ---
-
-/// `make_key` and `model_key` are the API keys as returned by the reference-data endpoint.
-/// Examples: make_key = "yamaha", model_key = "tenere-700"
 pub async fn scrape_category(
-    client: &Client,
     category: &str,
     make_key: &str,
     model_key: &str,
 ) -> Result<Vec<MotorcycleListing>, Box<dyn Error>> {
-    let client_id = std::env::var("AS24_CLIENT_ID")
-        .map_err(|_| "AS24_CLIENT_ID not set — see src/scrapers/autoscout24.rs for setup")?;
-    let client_secret = std::env::var("AS24_CLIENT_SECRET")
-        .map_err(|_| "AS24_CLIENT_SECRET not set — see src/scrapers/autoscout24.rs for setup")?;
+    let config = BrowserConfig::builder()
+        .arg("--no-sandbox")
+        .arg("--disable-setuid-sandbox")
+        .arg("--disable-dev-shm-usage")
+        .arg("--disable-gpu")
+        .build()?;
 
-    let token = fetch_token(client, &client_id, &client_secret).await?;
+    let (mut browser, mut handler) = Browser::launch(config).await?;
+
+    // The handler drives the CDP connection — must be polled continuously.
+    tokio::task::spawn(async move {
+        loop {
+            if handler.next().await.is_none() {
+                break;
+            }
+        }
+    });
 
     let today = chrono::Local::now().date_naive();
-    let mut results = Vec::new();
-    let mut page = 0u32;
+    let mut all_results = Vec::new();
+    let mut pg = 1u32;
 
     loop {
-        let body = SearchRequest {
-            query: SearchQuery {
-                vehicle_categories: vec!["motorcycle"],
-                make_model_versions: vec![MakeModelVersion { make_key, model_key }],
-            },
-            pagination: Pagination { page, size: PAGE_SIZE },
-        };
+        let url = format!(
+            "https://www.autoscout24.ch/lst/{}/{}?atype=M&cy=CH&page={}",
+            make_key, model_key, pg
+        );
 
-        let resp: SearchResponse = client
-            .post(SEARCH_URL)
-            .bearer_auth(&token)
-            .json(&body)
-            .send()
-            .await?
-            .error_for_status()?
-            .json()
-            .await?;
+        let page = browser.new_page(&url).await?;
+        page.wait_for_navigation().await?;
 
-        for item in resp.content {
-            let Some(price) = item.price else { continue };
+        // Give the JS a moment to hydrate after navigation fires
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
-            // Prefer versionFullName (e.g. "Yamaha Ténéré 700 World Raid"),
-            // fall back to make + model name
-            let title = item
-                .version_full_name
-                .filter(|s| !s.trim().is_empty())
-                .unwrap_or_else(|| {
-                    let marke = item.make.as_ref().map(|m| m.name.as_str()).unwrap_or("");
-                    let modell = item.model.as_ref().map(|m| m.name.as_str()).unwrap_or("");
-                    format!("{} {}", marke, modell).trim().to_string()
-                });
+        // Extract Next.js server-side data embedded in the page
+        let raw: Value = page
+            .evaluate(
+                "(() => { \
+                    const el = document.getElementById('__NEXT_DATA__'); \
+                    return el ? JSON.parse(el.textContent) : null; \
+                })()",
+            )
+            .await
+            .ok()
+            .and_then(|v| v.into_value().ok())
+            .unwrap_or(Value::Null);
 
-            if title.is_empty() {
-                continue;
-            }
-
-            let mileage = item.mileage.unwrap_or(0);
-            let year = item.first_registration_year.unwrap_or(0);
-
-            let seller_name = item
-                .seller
-                .as_ref()
-                .and_then(|s| s.name.clone())
-                .unwrap_or_default();
-            let city = item
-                .seller
-                .as_ref()
-                .and_then(|s| s.city.clone())
-                .unwrap_or_default();
-            let zip = item
-                .seller
-                .as_ref()
-                .and_then(|s| s.zip_code.clone())
-                .unwrap_or_default();
-
-            // Private sellers have no company name on file
-            let is_private = seller_name.trim().is_empty();
-            let kanton = zip_to_kanton(&zip).to_string();
-
-            let make_slug = item.make.as_ref().map(|m| m.key.as_str()).unwrap_or(make_key);
-            let listing_url = format!(
-                "https://www.autoscout24.ch/de/motorrad/{}/{}/{}",
-                make_slug, model_key, item.id
-            );
-
-            results.push(MotorcycleListing::new(
-                item.id,
-                today,
-                category.to_string(),
-                title,
-                price as u32,
-                mileage,
-                year,
-                listing_url,
-                city,
-                kanton,
-                is_private,
-                seller_name,
-            ));
+        if std::env::var("AS24_DEBUG").is_ok() {
+            let path = format!("/tmp/as24_p{}.json", pg);
+            let _ = std::fs::write(&path, serde_json::to_string_pretty(&raw).unwrap_or_default());
+            eprintln!("  [as24 debug] page {} → {}", pg, path);
         }
 
-        if resp.total_pages == 0 || page + 1 >= resp.total_pages {
+        let listings = find_listings(&raw);
+        if listings.is_empty() {
+            let _ = page.close().await;
             break;
         }
-        page += 1;
-        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+
+        let count = listings.len();
+        for item in &listings {
+            if let Some(l) = parse_listing(item, category, make_key, model_key, today) {
+                all_results.push(l);
+            }
+        }
+
+        let _ = page.close().await;
+
+        if count < LISTINGS_PER_PAGE {
+            break;
+        }
+        pg += 1;
+        tokio::time::sleep(std::time::Duration::from_millis(800)).await;
     }
 
-    Ok(results)
+    let _ = browser.close().await;
+    Ok(all_results)
+}
+
+// --- JSON extraction ---
+
+/// Walk known Next.js data paths to find the listings array.
+/// Run with AS24_DEBUG=1 to inspect the raw JSON if none of these match.
+fn find_listings(data: &Value) -> Vec<Value> {
+    let paths: &[&[&str]] = &[
+        &["props", "pageProps", "listings"],
+        &["props", "pageProps", "searchResult", "listings"],
+        &["props", "pageProps", "vehicleListingSearchResult", "listings"],
+        &["props", "pageProps", "initialState", "listings", "items"],
+        &["props", "pageProps", "data", "listings"],
+        &["props", "pageProps", "data", "results"],
+    ];
+
+    for path in paths {
+        if let Some(arr) = dig(data, path).and_then(|v| v.as_array()) {
+            if !arr.is_empty() {
+                return arr.clone();
+            }
+        }
+    }
+    vec![]
+}
+
+fn dig<'a>(v: &'a Value, path: &[&str]) -> Option<&'a Value> {
+    let mut cur = v;
+    for key in path {
+        cur = cur.get(key)?;
+    }
+    Some(cur)
+}
+
+// --- Listing parsing ---
+
+fn parse_listing(
+    item: &Value,
+    category: &str,
+    make_key: &str,
+    model_key: &str,
+    today: NaiveDate,
+) -> Option<MotorcycleListing> {
+    let id = item.get("id").and_then(|v| v.as_u64())?;
+
+    // Price: plain number or { amount, value }
+    let price = item
+        .get("price")
+        .and_then(|p| {
+            p.as_f64()
+                .or_else(|| p.get("amount").and_then(|a| a.as_f64()))
+                .or_else(|| p.get("value").and_then(|a| a.as_f64()))
+        })?;
+
+    let mileage = item
+        .get("mileage")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0) as u32;
+
+    let year = item
+        .get("firstRegistrationYear")
+        .or_else(|| item.get("registrationYear"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0) as u16;
+
+    // Title: prefer versionFullName, fall back to make + model
+    let version = item
+        .get("versionFullName")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.trim().is_empty());
+
+    let make_name = dig(item, &["make", "name"])
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let model_name = dig(item, &["model", "name"])
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    let title = version
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| format!("{} {}", make_name, model_name).trim().to_string());
+
+    if title.is_empty() {
+        return None;
+    }
+
+    let seller = item.get("seller");
+
+    let seller_name = seller
+        .and_then(|s| s.get("name"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let city = seller
+        .and_then(|s| s.get("city"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let zip = seller
+        .and_then(|s| s.get("zipCode").or_else(|| s.get("zip")))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let is_private = seller_name.trim().is_empty();
+    let kanton = zip_to_kanton(&zip).to_string();
+
+    let make_slug = dig(item, &["make", "key"])
+        .and_then(|v| v.as_str())
+        .unwrap_or(make_key);
+
+    let listing_url = format!(
+        "https://www.autoscout24.ch/de/motorrad/{}/{}/{}",
+        make_slug, model_key, id
+    );
+
+    Some(MotorcycleListing::new(
+        id,
+        today,
+        category.to_string(),
+        title,
+        price as u32,
+        mileage,
+        year,
+        listing_url,
+        city,
+        kanton,
+        is_private,
+        seller_name,
+    ))
 }
 
 /// Maps a Swiss postal code to a canton abbreviation.
-/// Covers the main ranges — good enough for the location scoring multiplier.
 fn zip_to_kanton(zip: &str) -> &'static str {
     let Ok(n) = zip.trim().parse::<u32>() else {
         return "";
