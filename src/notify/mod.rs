@@ -34,6 +34,25 @@ impl Default for NotifyConfig {
     }
 }
 
+/// Send a test ping to verify the notification pipeline is working.
+pub async fn test_ping(client: &Client, config: &NotifyConfig) -> Result<(), Box<dyn Error>> {
+    let Backend::Ntfy(ref cfg) = config.backend else {
+        return Err("no notification backend configured — add [notify.ntfy] to config.toml".into());
+    };
+    ntfy::send(
+        client,
+        cfg,
+        Message {
+            title: "openclaw · test".to_string(),
+            body: "notification pipeline working".to_string(),
+            priority: 3,
+            tags: vec!["motorcycle", "white_check_mark"],
+            click_url: None,
+        },
+    )
+    .await
+}
+
 /// Send notifications for everything interesting in this scrape run.
 /// Skips listing+price combos already in `state` to avoid duplicate pushes.
 pub async fn dispatch(

@@ -10,11 +10,22 @@ use std::error::Error;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let cfg = config::load()?;
-    let daemon = std::env::args().any(|a| a == "--daemon");
+    let args: Vec<String> = std::env::args().collect();
+    let daemon = args.iter().any(|a| a == "--daemon");
+    let test_notify = args.iter().any(|a| a == "--test-notify");
 
     let client = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
         .build()?;
+
+    if test_notify {
+        let notify_cfg = config::notify_config(&cfg);
+        match notify::test_ping(&client, &notify_cfg).await {
+            Ok(()) => println!("test notification sent — check your phone"),
+            Err(e)  => eprintln!("notify error: {}", e),
+        }
+        return Ok(());
+    }
 
     if daemon {
         let interval = std::time::Duration::from_secs(cfg.agent.interval_hours * 3600);
