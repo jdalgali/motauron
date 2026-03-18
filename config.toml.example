@@ -1,0 +1,10 @@
+[agent]
+# hours between scrape cycles when running with --daemon
+interval_hours = 4
+# minimum price_score to trigger a high-priority alert (7 = "good", 15 = "great deal")
+min_alert_score = 7
+
+[notify.ntfy]
+# create a private topic at ntfy.sh — pick any random string, keep it secret
+url = "https://ntfy.sh/your-private-topic-abc123"
+# token = "optional"   # only needed for self-hosted ntfy with auth
