@@ -1,4 +1,5 @@
 use crate::models::motorcycle::{ListingStatus, MotorcycleListing};
+use crate::scoring;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 
@@ -18,11 +19,14 @@ impl StoreSummary {
         println!("  new       {}", self.new.len());
         for l in &self.new {
             println!(
-                "    + {} · {}km · {} · chf {}",
+                "    + {} · {}km · {} · chf {} · {} · {} ({:+}%)",
                 l.title.to_lowercase(),
                 l.mileage_km,
                 l.year,
-                l.price_chf
+                l.price_chf,
+                l.location,
+                l.price_label,
+                l.price_score,
             );
             println!("      {}", l.url);
         }
@@ -30,11 +34,12 @@ impl StoreSummary {
         println!("  sold      {}", self.sold.len());
         for l in &self.sold {
             println!(
-                "    - {} · {}km · {} · chf {} · last seen {}",
+                "    - {} · {}km · {} · chf {} · {} · last seen {}",
                 l.title.to_lowercase(),
                 l.mileage_km,
                 l.year,
                 l.price_chf,
+                l.location,
                 l.last_seen
             );
         }
@@ -42,11 +47,14 @@ impl StoreSummary {
         println!("  relisted  {}", self.relisted.len());
         for l in &self.relisted {
             println!(
-                "    ~ {} · {}km · {} · chf {} (was id {})",
+                "    ~ {} · {}km · {} · chf {} · {} · {} ({:+}%) · was id {}",
                 l.title.to_lowercase(),
                 l.mileage_km,
                 l.year,
                 l.price_chf,
+                l.location,
+                l.price_label,
+                l.price_score,
                 l.previous_listing_id.unwrap_or(0)
             );
             println!("      {}", l.url);
@@ -120,6 +128,32 @@ pub fn merge_and_save(scraped: Vec<MotorcycleListing>) -> Result<StoreSummary, B
         {
             listing.status = ListingStatus::Sold;
             summary.sold.push(listing.clone());
+        }
+    }
+
+    // Re-score all active listings in scraped categories with fresh market context
+    for category in &scraped_categories {
+        let mut group: Vec<MotorcycleListing> = db
+            .values()
+            .filter(|l| &l.category == category && l.status == ListingStatus::Active)
+            .cloned()
+            .collect();
+
+        scoring::score_category(&mut group);
+
+        for scored in group {
+            if let Some(l) = db.get_mut(&scored.listing_id) {
+                l.price_score = scored.price_score;
+                l.price_label = scored.price_label;
+            }
+        }
+    }
+
+    // Refresh summary entries with scored versions from db
+    for l in summary.new.iter_mut().chain(summary.relisted.iter_mut()) {
+        if let Some(scored) = db.get(&l.listing_id) {
+            l.price_score = scored.price_score;
+            l.price_label = scored.price_label.clone();
         }
     }
 

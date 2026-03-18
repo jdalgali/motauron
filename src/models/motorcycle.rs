@@ -23,6 +23,10 @@ pub struct MotorcycleListing {
     pub mileage_km: u32,
     pub url: String,
     pub previous_listing_id: Option<u64>, // Set when this is a detected relist
+    pub location: String,                 // City name, e.g. "Zürich"
+    pub kanton: String,                   // Canton code, e.g. "ZH"
+    pub price_score: i32,                 // % cheaper (+) or pricier (-) than expected within year peers
+    pub price_label: String,              // "great deal" / "good" / "fair" / "overpriced" / "expensive" / "n/a"
 }
 
 impl MotorcycleListing {
@@ -50,6 +54,8 @@ impl MotorcycleListing {
         mileage_km: u32,
         year: u16,
         url: String,
+        location: String,
+        kanton: String,
     ) -> Self {
         let fingerprint = Self::build_fingerprint(&title, year, mileage_km);
         Self {
@@ -65,6 +71,10 @@ impl MotorcycleListing {
             year,
             url,
             previous_listing_id: None,
+            location,
+            kanton,
+            price_score: 0,
+            price_label: String::new(),
         }
     }
 }
