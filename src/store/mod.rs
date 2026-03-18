@@ -207,7 +207,11 @@ pub fn merge_and_save(scraped: Vec<MotorcycleListing>) -> Result<StoreSummary, B
     let mut rows: Vec<&MotorcycleListing> = db.values().collect();
     rows.sort_by_key(|l| l.listing_id);
 
-    let mut writer = csv::Writer::from_path(DB_PATH)?;
+    // Write UTF-8 BOM so Excel/LibreOffice auto-detects the encoding
+    let file = std::fs::File::create(DB_PATH)?;
+    let mut buf = std::io::BufWriter::new(file);
+    std::io::Write::write_all(&mut buf, b"\xef\xbb\xbf")?;
+    let mut writer = csv::Writer::from_writer(buf);
     for listing in rows {
         writer.serialize(listing)?;
     }
