@@ -35,8 +35,6 @@ pub async fn scrape_category(
     category: &str,
     url: &str,
 ) -> Result<Vec<MotorcycleListing>, Box<dyn Error>> {
-    println!("  Scraping: {}", category);
-
     let response = client.get(url).send().await?.text().await?;
 
     let start_marker = "window.__store__";

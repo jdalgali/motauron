@@ -9,55 +9,52 @@ pub struct StoreSummary {
     pub updated: usize,
     pub sold: Vec<MotorcycleListing>,
     pub relisted: Vec<MotorcycleListing>,
+    pub total_tracked: usize,
 }
 
 impl StoreSummary {
     pub fn print(&self) {
-        println!("\n--- Run Summary ---");
-        println!("  Updated (still active): {}", self.updated);
-
-        if self.new.is_empty() {
-            println!("  New listings:           0");
-        } else {
-            println!("  New listings:           {}", self.new.len());
-            for l in &self.new {
-                println!(
-                    "    [NEW]  {} | {}km | {} | CHF {} | {}",
-                    l.title, l.mileage_km, l.year, l.price_chf, l.url
-                );
-            }
+        println!();
+        println!("  new       {}", self.new.len());
+        for l in &self.new {
+            println!(
+                "    + {} · {}km · {} · chf {}",
+                l.title.to_lowercase(),
+                l.mileage_km,
+                l.year,
+                l.price_chf
+            );
+            println!("      {}", l.url);
         }
 
-        if self.sold.is_empty() {
-            println!("  Marked as sold:         0");
-        } else {
-            println!("  Marked as sold:         {}", self.sold.len());
-            for l in &self.sold {
-                println!(
-                    "    [SOLD] {} | {}km | {} | CHF {} | last seen {}",
-                    l.title, l.mileage_km, l.year, l.price_chf, l.last_seen
-                );
-            }
+        println!("  sold      {}", self.sold.len());
+        for l in &self.sold {
+            println!(
+                "    - {} · {}km · {} · chf {} · last seen {}",
+                l.title.to_lowercase(),
+                l.mileage_km,
+                l.year,
+                l.price_chf,
+                l.last_seen
+            );
         }
 
-        if self.relisted.is_empty() {
-            println!("  Relisted bikes:         0");
-        } else {
-            println!("  Relisted bikes:         {}", self.relisted.len());
-            for l in &self.relisted {
-                println!(
-                    "    [RELIST] {} | {}km | {} | CHF {} | prev id {} | {}",
-                    l.title,
-                    l.mileage_km,
-                    l.year,
-                    l.price_chf,
-                    l.previous_listing_id.unwrap_or(0),
-                    l.url
-                );
-            }
+        println!("  relisted  {}", self.relisted.len());
+        for l in &self.relisted {
+            println!(
+                "    ~ {} · {}km · {} · chf {} (was id {})",
+                l.title.to_lowercase(),
+                l.mileage_km,
+                l.year,
+                l.price_chf,
+                l.previous_listing_id.unwrap_or(0)
+            );
+            println!("      {}", l.url);
         }
 
-        println!("\nDatabase saved to {}", DB_PATH);
+        println!("  updated   {}", self.updated);
+        println!();
+        println!("  tracking  {} listings — {}", self.total_tracked, DB_PATH);
     }
 }
 
@@ -91,6 +88,7 @@ pub fn merge_and_save(scraped: Vec<MotorcycleListing>) -> Result<StoreSummary, B
         updated: 0,
         sold: Vec::new(),
         relisted: Vec::new(),
+        total_tracked: 0,
     };
 
     for mut listing in scraped {
@@ -124,6 +122,8 @@ pub fn merge_and_save(scraped: Vec<MotorcycleListing>) -> Result<StoreSummary, B
             summary.sold.push(listing.clone());
         }
     }
+
+    summary.total_tracked = db.len();
 
     // Write back to CSV sorted by listing_id for stable, diffable output
     let mut rows: Vec<&MotorcycleListing> = db.values().collect();
