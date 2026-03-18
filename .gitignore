@@ -1,0 +1,13 @@
+# Rust build output
+/target
+
+# Generated data — not source code
+listings_db.csv
+error_page.html
+
+# RustRover / IntelliJ IDE
+.idea/
+*.iml
+
+# Environment / secrets
+.env
