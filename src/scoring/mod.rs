@@ -1,3 +1,4 @@
+use crate::models::generations::generation_bucket;
 use crate::models::motorcycle::MotorcycleListing;
 use std::collections::HashMap;
 
@@ -27,44 +28,42 @@ pub fn score_category(listings: &mut [MotorcycleListing]) {
     //   1. exact title + year          ("yamaha mt-09 sp", 2021)
     //   2. variant tag + year          ("sp", 2021) — keeps SP separate from base
     //   3. year only                   (2021)        — last resort, same variant tag preferred
-    let mut title_year_groups: HashMap<(String, u16), Vec<usize>> = HashMap::new();
-    let mut variant_year_groups: HashMap<(&'static str, u16), Vec<usize>> = HashMap::new();
+    let mut title_bucket_groups: HashMap<(String, u16), Vec<usize>> = HashMap::new();
+    let mut variant_bucket_groups: HashMap<(&'static str, u16), Vec<usize>> = HashMap::new();
     let mut variant_groups: HashMap<&'static str, Vec<usize>> = HashMap::new();
-    let mut year_groups: HashMap<u16, Vec<usize>> = HashMap::new();
+    let mut bucket_groups: HashMap<u16, Vec<usize>> = HashMap::new();
 
     for (i, l) in listings.iter().enumerate() {
-        title_year_groups
-            .entry((l.title.to_lowercase(), l.year))
-            .or_default()
-            .push(i);
+        let bucket = generation_bucket(&l.category, l.year);
         let tag = variant_tag(&l.title);
-        variant_year_groups
-            .entry((tag, l.year))
+        title_bucket_groups
+            .entry((l.title.to_lowercase(), bucket))
             .or_default()
             .push(i);
+        variant_bucket_groups.entry((tag, bucket)).or_default().push(i);
         variant_groups.entry(tag).or_default().push(i);
-        year_groups.entry(l.year).or_default().push(i);
+        bucket_groups.entry(bucket).or_default().push(i);
     }
 
     for i in 0..listings.len() {
-        let title_key = (listings[i].title.to_lowercase(), listings[i].year);
+        let bucket = generation_bucket(&listings[i].category, listings[i].year);
         let tag = variant_tag(&listings[i].title);
-        let variant_key = (tag, listings[i].year);
-        let year = listings[i].year;
+        let title_key = (listings[i].title.to_lowercase(), bucket);
+        let variant_key = (tag, bucket);
 
         // Fallback ladder (most → least specific):
-        //   1. exact title + year  e.g. "yamaha mt-09 sp" 2021
-        //   2. variant + year      e.g. all SPs from 2021
-        //   3. variant (all years) e.g. all SPs ever — keeps SP away from base
-        //   4. year (all variants) — last resort
-        let peers = if title_year_groups[&title_key].len() >= 2 {
-            title_year_groups[&title_key].clone()
-        } else if variant_year_groups[&variant_key].len() >= 2 {
-            variant_year_groups[&variant_key].clone()
+        //   1. exact title + bucketeration  e.g. "yamaha mt-09 sp" bucket3 (2021–2023)
+        //   2. variant + bucketeration      e.g. all SPs in bucket3
+        //   3. variant (all buckets)        e.g. all SPs ever — never mixes SP with base
+        //   4. bucketeration (all variants) — last resort, at least same mechanical spec
+        let peers = if title_bucket_groups[&title_key].len() >= 2 {
+            title_bucket_groups[&title_key].clone()
+        } else if variant_bucket_groups[&variant_key].len() >= 2 {
+            variant_bucket_groups[&variant_key].clone()
         } else if variant_groups[&tag].len() >= 2 {
             variant_groups[&tag].clone()
-        } else if year_groups[&year].len() >= 2 {
-            year_groups[&year].clone()
+        } else if bucket_groups[&bucket].len() >= 2 {
+            bucket_groups[&bucket].clone()
         } else {
             listings[i].price_label = "n/a".to_string();
             listings[i].score_peers = 1;
