@@ -1,0 +1,37 @@
+# Motauron Agentic Workspace Rules
+
+## Architecture Constraints (Hexagonal Architecture)
+This project strictly follows Hexagonal Architecture (Ports and Adapters). When making changes or adding features, adhere to the following rules:
+
+1. **Domain Layer (`src/domain/`)**:
+   - Contains core business rules, entities, and value objects.
+   - **MUST NOT** depend on any external I/O, frameworks, or database libraries (e.g., `reqwest`, `csv`, `tokio`).
+   - All logic here must be purely functional and easily unit-testable.
+
+2. **Application Layer (`src/application/`)**:
+   - Contains Use Cases and Ports (Rust `trait`s).
+   - Coordinates the flow of data between the Domain and Infrastructure.
+   - **MUST NOT** implement any concrete database or network logic. It only calls traits defined in its own `ports` module.
+
+3. **Infrastructure Layer (`src/infrastructure/`)**:
+   - Contains Adapters that implement Application Ports.
+   - This is where `reqwest`, `csv`, HTTP endpoints, and hardware interactions live.
+   - Adapters translate external data formats into internal Domain entities before passing them to the Application layer.
+
+
+## Frontend Constraints (Feature-Driven React)
+The frontend UI (`frontend/` directory) is built with Vite, React, and Vanilla CSS. It strictly enforces a Feature-Driven architectural shape:
+1. `src/shared/`: Pure, reusable components (Buttons, inputs), utilities, and global API/Firebase wrappers. Cannot import from features.
+2. `src/features/`: Domain-specific logic (`market-feed`, `deal-cards`). Features can import from `shared` but **MUST NEVER** import from other features.
+3. `src/pages/`: Composes features together mapped to routes.
+4. `src/app/`: Global state and initialization.
+
+## Clean Code & Aesthetic Directives
+- **Zero-Tolerance for Spaghetti**: Code must be hyper-modular. Functions should do one thing. Components should be small and purely presentational where possible.
+- **Aesthetics First**: Avoid generic UI. Use beautiful, coordinated color palettes (e.g., premium dark modes), glassmorphism where appropriate, smooth transitions, and dynamic micro-animations (hover effects).
+- **No Magic Strings/Numbers**: Extract constants to shared configurations.
+
+## Agentic Workflow Guidelines
+- **Plan Before Execution**: Any significant architectural change or new module must first be planned in an `implementation_plan.md` and approved by the user.
+- **Testing**: Whenever domain logic is added or modified, ensure unit tests are updated. Domain logic should be 100% testable without I/O.
+- **ADRs**: Any major design decision must be recorded as an Architecture Decision Record (ADR) in `docs/adr/`.

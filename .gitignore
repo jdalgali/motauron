@@ -1,13 +1,44 @@
 # Rust build output
-/target
+**/target/
+target/
+
+# Node.js
+frontend/node_modules/
+node_modules/
+frontend/dist/
+dist/
+
+# Firebase
+frontend/.firebase/
 
 # Generated data — not source code
 listings_db.csv
 error_page.html
+notified.json
+backend/notified.json
+backend/listings_db.csv
 
-# RustRover / IntelliJ IDE
-.idea/
-*.iml
+# Sensitive Information (CRITICAL)
+backend/service-account.json*
+service-account.json*
+backend/config.toml
+config.toml
 
 # Environment / secrets
 .env
+.env.local
+.env.*.local
+
+# IDE-specific
+.idea/
+*.iml
+.vscode/
+
+# Tool-specific
+.claude/
+.agent/
+.agents/
+
+# OS-specific
+.DS_Store
+Thumbs.db
