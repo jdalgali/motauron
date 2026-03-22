@@ -11,9 +11,13 @@ pub struct FirestoreListingRepository {
 }
 
 impl FirestoreListingRepository {
-    pub async fn new(project_id: &str, service_account_path: &str) -> Result<Self, Box<dyn Error>> {
-        unsafe {
-            std::env::set_var("GOOGLE_APPLICATION_CREDENTIALS", service_account_path);
+    /// `service_account_path` is only needed for local development.
+    /// On Cloud Run, leave it as `None` — workload identity / ADC handles auth automatically.
+    pub async fn new(project_id: &str, service_account_path: Option<&str>) -> Result<Self, Box<dyn Error>> {
+        if let Some(path) = service_account_path {
+            // Safety: called before the tokio runtime spawns any threads that read env vars.
+            // Skipped on Cloud Run where GOOGLE_APPLICATION_CREDENTIALS is pre-set via ADC.
+            unsafe { std::env::set_var("GOOGLE_APPLICATION_CREDENTIALS", path); }
         }
         let db = FirestoreDb::with_options(
             FirestoreDbOptions::new(project_id.to_string())

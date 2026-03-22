@@ -60,8 +60,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
         scrapers.push(Box::new(MotoscoutScraper::new(cat, url)));
     }
 
+    // On Cloud Run, GOOGLE_APPLICATION_CREDENTIALS is set automatically via workload identity.
+    // Locally, fall back to the service-account.json file if it exists.
+    let sa_path = if std::env::var("GOOGLE_APPLICATION_CREDENTIALS").is_ok() {
+        None
+    } else if std::path::Path::new("service-account.json").exists() {
+        Some("service-account.json")
+    } else {
+        None
+    };
     let repository = Box::new(
-        FirestoreListingRepository::new("motauron-ch", "service-account.json").await?
+        FirestoreListingRepository::new("motauron-ch", sa_path).await?
     );
 
     let use_case = TrackMarketUseCase {

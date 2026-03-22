@@ -1,24 +1,31 @@
-# ADR 0002: Frontend Architecture (Feature-Driven)
+# ADR 0002: Feature-Driven Architecture for the Frontend
 
 ## Status
-Proposed
+Accepted
 
 ## Context
-As we extend `motauron` to include a graphical interface using Vite and React, we need an architectural pattern that prevents the UI codebase from becoming a tangled "big ball of mud." Since the backend strictly adheres to Hexagonal Architecture, the frontend should have similarly rigid, logical boundaries.
+The frontend is a React + Vite SPA that displays live motorcycle listings from Firestore. As features grow (filters, stats, alerts), an unstructured component tree becomes a maintenance liability. The backend uses strict hexagonal boundaries — the frontend should have an equivalent discipline.
 
 ## Decision
-We will adopt a **Feature-Driven Architecture** for the React application. The codebase will be organized into strict directories restricting imports across bounds:
+Adopt **Feature-Driven Architecture**. The `src/` directory is split into four zones with enforced import direction:
 
-1. `src/app/`: Global application setup (routing, top-level context providers).
-2. `src/pages/`: Route-level components that compose features into a full view.
-3. `src/features/`: Domain-specific functionality (e.g., `listings`, `market_stats`). Each feature is self-contained with its own components, hooks, and localized logic.
-4. `src/shared/`: Reusable primitives that belong to no specific business domain (e.g., generic `Button`, `Card`, typography, and pure Firebase connector logic).
+```
+src/
+├── shared/      Reusable utilities with no feature dependencies (Firebase connector, types)
+├── features/    Self-contained domain slices (listings, market_stats, …)
+├── pages/       Route-level components that compose features into views
+└── app/         Global setup: routing, top-level context providers
+```
 
-### Rules of Import
-- **Features** may import from `shared`, but **never** from other `features`. If features must communicate, they do so through `pages` or global context in `app`.
-- **Shared** must not import from `features`, `pages`, or `app`.
+**Import rules:**
+- `features` may import from `shared`, never from other `features`
+- `shared` must not import from `features`, `pages`, or `app`
+- Cross-feature communication goes through `pages` or global context in `app`
+
+**Current features:**
+- `listings` — real-time feed from Firestore, price-score sorting, deal cards
 
 ## Consequences
-- **Positive**: High modularity. It will be easy to delete or replace entire features without breaking the app.
-- **Positive**: Clean code scaling. Multiple agents or engineers can build separate features with minimal merge conflicts.
-- **Negative**: Slight overhead for simple components, requiring them to be properly placed in either `features` or `shared`.
+- Each feature can be built, replaced, or deleted without touching other features.
+- The Firebase connector lives in `shared/firebase.ts` and is never duplicated.
+- Slight overhead for simple components that must be consciously placed in `features` or `shared` rather than dropped anywhere.

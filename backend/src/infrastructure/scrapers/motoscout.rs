@@ -2,6 +2,7 @@ use crate::application::ports::scraper::Scraper;
 use crate::domain::entities::MotorcycleListing;
 use async_trait::async_trait;
 use headless_chrome::{Browser, LaunchOptions};
+use std::ffi::OsStr;
 use scraper::{Html, Selector};
 use std::error::Error;
 use std::time::Duration;
@@ -44,12 +45,20 @@ impl MotoscoutScraper {
 #[async_trait]
 impl Scraper for MotoscoutScraper {
     async fn scrape(&self) -> Result<Vec<MotorcycleListing>, Box<dyn Error>> {
-        println!("Motoscout: Launching headful browser for stealth...");
-        
-        // We need headful mode often to pass Cloudflare JS challenges
+        println!("Motoscout: Launching browser...");
+
+        // Use CHROME_PATH env var if set (e.g. in Docker: /usr/bin/chromium).
+        // Falls back to headless_chrome auto-detection when unset (local dev).
+        let chrome_path = std::env::var("CHROME_PATH").ok().map(std::path::PathBuf::from);
+
         let browser = Browser::new(
             LaunchOptions::default_builder()
-                .headless(false) 
+                .headless(true)
+                .path(chrome_path)
+                .args(vec![
+                    OsStr::new("--no-sandbox"),
+                    OsStr::new("--disable-dev-shm-usage"),
+                ])
                 .build()?,
         )?;
 

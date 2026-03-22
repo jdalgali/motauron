@@ -38,10 +38,20 @@ pub struct NtfySection {
 }
 
 pub fn load() -> Result<Config, Box<dyn Error>> {
-    if !std::path::Path::new(CONFIG_PATH).exists() {
-        return Ok(Config::default());
+    let mut cfg = if std::path::Path::new(CONFIG_PATH).exists() {
+        let raw = std::fs::read_to_string(CONFIG_PATH)?;
+        toml::from_str(&raw)?
+    } else {
+        Config::default()
+    };
+
+    // Environment variables override config file — useful for container deployments.
+    if let Ok(url) = std::env::var("NTFY_URL") {
+        cfg.notify.ntfy = Some(NtfySection {
+            url,
+            token: std::env::var("NTFY_TOKEN").ok(),
+        });
     }
-    let raw = std::fs::read_to_string(CONFIG_PATH)?;
-    let cfg: Config = toml::from_str(&raw)?;
+
     Ok(cfg)
 }
