@@ -32,6 +32,10 @@ pub struct MotorcycleListing {
     pub price_score: i32,
     pub price_label: String,
     pub score_peers: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generation: Option<String>,
 }
 
 impl MotorcycleListing {
@@ -81,6 +85,8 @@ impl MotorcycleListing {
             price_score: 0,
             price_label: String::new(),
             score_peers: 0,
+            image_url: None,
+            generation: None,
         }
     }
 

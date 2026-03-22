@@ -8,3 +8,26 @@ min_alert_score = 7
 # create a private topic at ntfy.sh — pick any random string, keep it secret
 url = "https://ntfy.sh/your-private-topic-abc123"
 # token = "optional"   # only needed for self-hosted ntfy with auth
+
+# Search targets — each is a motorradhandel.ch search URL.
+# Default (no [[targets]] block): all motorcycles in Switzerland.
+# To narrow it down: open motorradhandel.ch, apply your filters, copy the URL.
+
+# Example: all Yamaha Tenere 700s with generation classification
+[[targets]]
+url = "https://motorradhandel.ch/en/all-motorbikes-and-scooters-search-switzerland?q=%7B%22arts%22%3A%5B1%5D%2C%22brands%22%3A%5B197%5D%2C%22models%22%3A%5B595%5D%7D"
+generations = [
+  { name = "World Raid", title_contains = "World Raid" },
+  { name = "Rally",      title_contains = "Rally" },
+  { name = "Gen 2 (2022+)", year_from = 2022 },
+  { name = "Gen 1 (2019–2021)", year_from = 2019, year_to = 2021 },
+]
+
+# Example: Yamaha MT-09
+# [[targets]]
+# url = "https://motorradhandel.ch/en/all-motorbikes-and-scooters-search-switzerland?q=%7B%22arts%22%3A%5B1%5D%2C%22brands%22%3A%5B197%5D%2C%22models%22%3A%5B198%5D%7D"
+# generations = [
+#   { name = "Gen 3 (2021+)", year_from = 2021 },
+#   { name = "Gen 2 (2017–2020)", year_from = 2017, year_to = 2020 },
+#   { name = "Gen 1 (2013–2016)", year_to = 2016 },
+# ]

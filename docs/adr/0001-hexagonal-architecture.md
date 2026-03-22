@@ -4,7 +4,7 @@
 Accepted
 
 ## Context
-`motauron` scrapes motorcycle listings from multiple marketplaces, merges them with historical data, calculates price scores, and sends notifications. The system has grown to include two scrapers (motorradhandel.ch and motoscout24.ch), a Firestore database, and an ntfy.sh notifier.
+`motauron` scrapes motorcycle listings from motorradhandel.ch, merges them with historical data, calculates price scores, and sends notifications. The system includes one scraper (motorradhandel.ch), two repository adapters (Firestore for production, JSON file for local dev), and an ntfy.sh notifier.
 
 Without clear boundaries, scraping logic, business rules, and I/O concerns collapse into each other. Adding a new marketplace or swapping the database becomes risky and requires touching unrelated code.
 
@@ -21,10 +21,11 @@ Adopt **Hexagonal Architecture** (Ports and Adapters). The codebase is split int
    - Ports (traits): `Scraper`, `ListingRepository`, `Notifier`
 
 3. **Infrastructure (`src/infrastructure/`)** — Concrete adapter implementations.
-   - `MotorradhandelScraper` — JSON extraction from `window.__store__`
-   - `MotoscoutScraper` — headless Chromium for JS-rendered pages
-   - `FirestoreListingRepository` — Firestore persistence
+   - `MotorradhandelScraper` — JSON extraction from `window.__store__`, with pagination
+   - `FirestoreListingRepository` — Firestore persistence (production)
+   - `JsonListingRepository` — local JSON file persistence (local dev, auto-selected)
    - `NtfyNotifier` — push notifications via ntfy.sh
+   - `api` — axum HTTP server exposing `GET /api/listings` and `POST /api/scrape`
 
 ## Consequences
 - Domain and application layers have zero dependencies on HTTP, databases, or notification services — they are fully unit-testable in isolation.

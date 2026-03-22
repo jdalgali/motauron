@@ -3,19 +3,18 @@ use crate::domain::entities::MotorcycleListing;
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::Deserialize;
+use std::collections::HashSet;
 use std::error::Error;
 
 pub struct MotorradhandelScraper {
     pub client: Client,
-    pub category: String,
     pub url: String,
 }
 
 impl MotorradhandelScraper {
-    pub fn new(client: Client, category: &str, url: &str) -> Self {
+    pub fn new(client: Client, url: &str) -> Self {
         Self {
             client,
-            category: category.to_string(),
             url: url.to_string(),
         }
     }
@@ -64,7 +63,7 @@ struct Standort {
     firma_name: Option<String>,
 }
 
-fn to_url_slug(s: &str) -> String {
+fn to_slug(s: &str) -> String {
     s.trim()
         .to_lowercase()
         .replace(' ', "-")
@@ -73,17 +72,73 @@ fn to_url_slug(s: &str) -> String {
         .collect()
 }
 
+/// Derive a stable category key from brand + model, e.g. "yamaha-tenere-700".
+fn derive_category(marke: &str, modell: &str) -> String {
+    let b = to_slug(marke);
+    let m = to_slug(modell);
+    if b.is_empty() || m.is_empty() {
+        return b + &m;
+    }
+    format!("{}-{}", b, m)
+}
+
+/// Build a page URL: page 1 uses the base URL as-is; subsequent pages append &p=N.
+fn page_url(base: &str, page: u32) -> String {
+    if page == 1 {
+        base.to_string()
+    } else {
+        format!("{}&p={}", base, page)
+    }
+}
+
 #[async_trait]
 impl Scraper for MotorradhandelScraper {
     async fn scrape(&self) -> Result<Vec<MotorcycleListing>, Box<dyn Error>> {
-        let response = self.client.get(&self.url).send().await?.text().await?;
+        let mut all_results: Vec<MotorcycleListing> = Vec::new();
+        let mut seen_ids: HashSet<u64> = HashSet::new();
+
+        for page in 1..=100u32 {
+            let url = page_url(&self.url, page);
+            let page_listings = self.fetch_page(&url).await?;
+
+            if page_listings.is_empty() {
+                break;
+            }
+
+            let before = all_results.len();
+            for listing in page_listings {
+                if seen_ids.insert(listing.listing_id) {
+                    all_results.push(listing);
+                }
+            }
+
+            // No new unique listings — we've hit the end.
+            if all_results.len() == before {
+                break;
+            }
+
+            println!(
+                "motorradhandel: page {} — {} listings so far",
+                page,
+                all_results.len()
+            );
+        }
+
+        println!("motorradhandel: total {} listings", all_results.len());
+        Ok(all_results)
+    }
+}
+
+impl MotorradhandelScraper {
+    async fn fetch_page(&self, url: &str) -> Result<Vec<MotorcycleListing>, Box<dyn Error>> {
+        let response = self.client.get(url).send().await?.text().await?;
 
         let start_marker = "window.__store__";
         let store_idx = match response.find(start_marker) {
             Some(idx) => idx,
             None => {
-                let _ = std::fs::write("error_page.html", &response);
-                return Err("JSON start not found — page saved as 'error_page.html'".into());
+                // Page doesn't exist or is empty — stop pagination.
+                return Ok(vec![]);
             }
         };
 
@@ -99,6 +154,10 @@ impl Scraper for MotorradhandelScraper {
 
         let json_str = json_and_rest[..end_idx].trim().trim_end_matches(';');
         let store_data: MhStore = serde_json::from_str(json_str)?;
+
+        if store_data.results.is_empty() {
+            return Ok(vec![]);
+        }
 
         let today = chrono::Local::now().date_naive();
         let mut results = Vec::new();
@@ -125,12 +184,14 @@ impl Scraper for MotorradhandelScraper {
                 continue;
             }
 
-            let brand_slug = to_url_slug(marke);
+            let category = derive_category(marke, modell);
+
+            let brand_slug = to_slug(marke);
             let model_slug = item
                 .rel_suchmh
                 .as_ref()
-                .map(|s| to_url_slug(&s.name))
-                .unwrap_or_else(|| to_url_slug(modell));
+                .map(|s| to_slug(&s.name))
+                .unwrap_or_else(|| to_slug(modell));
             let url = format!(
                 "https://motorradhandel.ch/en/d/{}/{}/{}",
                 brand_slug, model_slug, item.id
@@ -148,7 +209,7 @@ impl Scraper for MotorradhandelScraper {
             results.push(MotorcycleListing::new(
                 item.id,
                 today,
-                self.category.clone(),
+                category,
                 title,
                 price,
                 mileage,

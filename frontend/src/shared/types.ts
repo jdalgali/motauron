@@ -21,4 +21,6 @@ export interface MotorcycleListing {
   price_score: number;
   price_label: string;
   score_peers: number;
+  image_url?: string;
+  generation?: string;
 }

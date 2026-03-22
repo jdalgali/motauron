@@ -24,30 +24,45 @@ The backend is designed to run as a **Cloud Run Job** triggered by **Cloud Sched
 
 ## Local development
 
-### Backend
+No cloud credentials required. The backend auto-selects a local JSON store when no `service-account.json` is present.
 
-Requires Rust and a `service-account.json` Firestore key in `backend/`.
+### Quick start
 
+Terminal 1 — start the backend API server (scrapes motorradhandel on startup):
 ```
 cd backend
-cp config.toml.example config.toml   # edit with your ntfy URL
-cargo run
+cargo run -- --serve
 ```
 
-For continuous mode (skips Cloud Scheduler — useful for local testing):
-
-```
-cargo run -- --daemon
-```
-
-### Frontend
-
+Terminal 2 — start the frontend dev server:
 ```
 cd frontend
-cp .env.local.example .env.local     # add your Firebase API key
+cp .env.local.example .env.local   # VITE_API_URL=http://localhost:3001 is the default
 npm install
 npm run dev
 ```
+
+Open http://localhost:5173. Hit **↻ Refresh** in the UI to trigger a fresh scrape at any time.
+
+### Backend flags
+
+| Flag | Effect |
+|------|--------|
+| _(none)_ | Scrape once and exit |
+| `--serve` | Scrape on startup, then serve HTTP API on port 3001 |
+| `--daemon` | Scrape every N hours in a loop (N from `config.toml`, default 4) |
+| `--serve --daemon` | API server + background scrape loop |
+
+### Optional: config.toml
+
+Copy `config.toml.example` and edit to override the default search URL or add ntfy notifications:
+
+```
+cd backend
+cp config.toml.example config.toml
+```
+
+The default scrapes **all motorcycles on motorradhandel.ch**. To narrow it, paste any motorradhandel search URL (with your filters set on their site) into `config.toml`.
 
 ## Deployment
 
@@ -68,7 +83,7 @@ gcloud run jobs create motauron \
   --image gcr.io/motauron-ch/motauron \
   --region europe-west6 \
   --service-account motauron-runner@motauron-ch.iam.gserviceaccount.com \
-  --set-env-vars NTFY_URL=https://ntfy.sh/your-private-topic
+  --set-env-vars NTFY_URL=https://ntfy.sh/openclaw-horgen24
 ```
 
 The service account needs `roles/datastore.user` on the project. Because the job runs with workload identity, no key file is mounted — `GOOGLE_APPLICATION_CREDENTIALS` is handled automatically.

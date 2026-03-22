@@ -21,10 +21,27 @@ export const DealCard: React.FC<Props> = ({ listing }) => {
 
   return (
     <a href={listing.url} target="_blank" rel="noopener noreferrer" className="deal-card glass-panel">
+      {listing.image_url && (
+        <div className="card-image">
+          <img
+            src={listing.image_url}
+            alt={listing.title}
+            loading="lazy"
+            referrerPolicy="no-referrer"
+            onError={(e) => {
+              const parent = (e.target as HTMLElement).parentElement;
+              if (parent) parent.style.display = "none";
+            }}
+          />
+        </div>
+      )}
       <div className="card-header">
         <h3 className="car-title">{listing.title}</h3>
         <span className="car-year">{listing.year}</span>
       </div>
+      {listing.generation && (
+        <div className="card-generation">{listing.generation}</div>
+      )}
       
       <div className="card-body">
         <div className="card-price">
